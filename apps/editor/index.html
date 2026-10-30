@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#1b1c1f" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>Garment Studio</title>
+    <script>
+      // Apply the saved theme before first paint (no flash).
+      try {
+        var t = localStorage.getItem('gs:prefs');
+        var theme = t ? JSON.parse(t).state.theme : 'dark';
+        document.documentElement.dataset.theme = theme;
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

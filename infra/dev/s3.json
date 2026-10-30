@@ -1,0 +1,10 @@
+{
+  "identities": [
+    {
+      "name": "gs-dev",
+      "credentials": [{ "accessKey": "gs-dev-access", "secretKey": "gs-dev-secret-key" }],
+      "actions": ["Admin", "Read", "List", "Tagging", "Write"]
+    },
+    { "name": "anonymous", "actions": ["Read:gs-dev-public", "Read:gs-test-public"] }
+  ]
+}

@@ -1,0 +1,141 @@
+/* Garment Studio design tokens (DESIGN_SYSTEM.md, ADR-0002).
+   Neutrals, radii and spacing follow the measured reference; the accent is our own cobalt. */
+
+@theme inline {
+  --font-sans:
+    'Inter Variable', 'Inter', 'Microsoft YaHei', 'PingFang SC', 'Noto Sans SC', 'Segoe UI', system-ui,
+    sans-serif;
+
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-field: var(--field);
+  --color-hover: var(--hover);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-ink: var(--accent-ink);
+  /* Accent for text and icons: tuned per theme for ≥ 4.5:1 on panel, field and accent-soft. */
+  --color-accent-fg: var(--accent-fg);
+  --color-success-fg: var(--success-fg);
+  --color-warn-fg: var(--warn-fg);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+  --color-mat: var(--mat-bg);
+  --color-mat-in: var(--mat-in);
+  --color-dot: var(--dot);
+  --color-stage: var(--stage);
+  --color-seg: var(--seg-bg);
+  --color-icon: var(--icon);
+  --color-label: var(--label);
+  --color-toggle-off: var(--toggle-off);
+  --color-glass: var(--glass);
+  --color-glass-strong: var(--glass-strong);
+  --color-glass-line: var(--glass-line);
+
+  --shadow-panel: var(--shadow);
+  --shadow-seg: 0 1px 2px rgba(16, 24, 40, 0.12);
+}
+
+:root {
+  color-scheme: light;
+  --bg: #f5f6f8;
+  --panel: #ffffff;
+  --ink: #3d4148;
+  /* Darker than the reference greys so captions pass 4.5:1 on white and on accent-soft (axe, Stage 5 prep). */
+  --muted: #5d6471;
+  --faint: #6b7280;
+  --line: #e6e8ec;
+  --line-strong: #d5d9df;
+  --field: #ffffff;
+  --hover: #f2f4f7;
+  --accent: #4a5fd1;
+  --accent-hover: #3f52b8;
+  --accent-soft: #eceffc;
+  --accent-ink: #ffffff;
+  --accent-fg: #3f52c2;
+  --success-fg: #1b6e30;
+  --warn-fg: #8a4b0b;
+  --danger: #c5221f;
+  --success: #34a853;
+  --mat-bg: #f7f8fa;
+  --mat-in: #eef0f3;
+  --dot: #d3d7dd;
+  --stage: #ececec;
+  --seg-bg: #eef0f3;
+  --icon: #4b5563;
+  --label: #434343;
+  --toggle-off: #d5d9df;
+  --glass: rgba(255, 255, 255, 0.78);
+  --glass-strong: rgba(255, 255, 255, 0.95);
+  --glass-line: rgba(16, 24, 40, 0.1);
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 4px 14px rgba(16, 24, 40, 0.07);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #1b1c1f;
+  --panel: #232428;
+  --ink: #e7e8ea;
+  --muted: #a0a5ad;
+  /* Raised from the reference's #6f747c to reach 4.5:1 on panel (ACCESSIBILITY_AND_COMPATIBILITY.md). */
+  --faint: #8d939c;
+  --line: #34363b;
+  --line-strong: #41444a;
+  --field: #1e1f22;
+  --hover: #2d2f34;
+  --accent: #5867e0;
+  --accent-hover: #6b78e6;
+  --accent-soft: #272c47;
+  --accent-ink: #ffffff;
+  --accent-fg: #9aa5f7;
+  --success-fg: #6fd18a;
+  --warn-fg: #f5c15c;
+  --danger: #f28b82;
+  --success: #34a853;
+  --mat-bg: #26272b;
+  --mat-in: #2b2d31;
+  --dot: #3c3f45;
+  --stage: #2a2b2e;
+  --seg-bg: #2c2e33;
+  --icon: #c3c7cd;
+  --label: #c9ccd1;
+  --toggle-off: #4a4d54;
+  --glass: rgba(40, 42, 46, 0.78);
+  --glass-strong: rgba(48, 50, 55, 0.95);
+  --glass-line: rgba(255, 255, 255, 0.1);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+    }
+  }
+}

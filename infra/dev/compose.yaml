@@ -1,0 +1,52 @@
+# Local backing services for apps/api (development and integration tests).
+# Ports are offset (5xxxx) so they don't collide with services already on this machine.
+#   docker compose -f infra/dev/compose.yaml up -d
+name: garment-studio-dev
+
+services:
+  postgres:
+    image: postgres:17.6-alpine
+    environment:
+      POSTGRES_USER: gs
+      POSTGRES_PASSWORD: gs-dev-password
+      POSTGRES_DB: gs
+    ports: ['127.0.0.1:55432:5432']
+    volumes: ['pg:/var/lib/postgresql/data']
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U gs']
+      interval: 2s
+      retries: 30
+
+  redis:
+    image: redis:7.4-alpine
+    ports: ['127.0.0.1:56379:6379']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 2s
+      retries: 30
+
+  # S3-compatible stand-in for Cloudflare R2 (ADR-0014). MinIO no longer publishes images, so SeaweedFS.
+  # Credentials and the public-read buckets (garment files) are in s3.json.
+  s3:
+    image: chrislusf/seaweedfs:4.51
+    command: server -dir=/data -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json -volume.max=0 -master.volumeSizeLimitMB=256 -master.telemetry=false
+    ports: ['127.0.0.1:58333:8333']
+    volumes: ['s3:/data', './s3.json:/etc/seaweedfs/s3.json:ro']
+
+  # Catches every email the API sends; UI on http://localhost:58025, REST API used by tests.
+  mailpit:
+    image: axllent/mailpit:v1.27
+    ports: ['127.0.0.1:51025:1025', '127.0.0.1:58025:8025']
+
+  # Antivirus for uploaded assets (clamd INSTREAM over TCP). First start downloads signatures (~1–3 min).
+  clamav:
+    image: clamav/clamav:1.4
+    ports: ['127.0.0.1:53310:3310']
+    healthcheck:
+      test: ['CMD', 'clamdcheck.sh']
+      interval: 10s
+      retries: 60
+
+volumes:
+  pg:
+  s3:

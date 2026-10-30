@@ -1,0 +1,7 @@
+extends:
+  - recommended
+rules:
+  # Placeholder domains until the product name is final (ADR-0002); localhost is the dev server.
+  no-server-example.com: off
+  # /auth/oauth/{provider}/start answers 302 and /ws answers 101 by design.
+  operation-2xx-response: off
