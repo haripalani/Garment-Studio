@@ -7,7 +7,7 @@ export type Tool = 'select' | 'hand' | 'image' | 'text' | 'shape';
 export type Quality = 'adaptive' | 'full' | 'half' | 'quarter';
 export type CameraPreset = 'front' | 'back' | 'side';
 export type InspectorTab = 'design' | 'scene';
-export type Dialog = 'auth' | 'render' | 'new' | null;
+export type Dialog = 'auth' | 'render' | 'new' | 'print' | 'panels' | 'spec' | 'video' | 'projects' | 'claim' | null;
 
 export const ZOOM_MIN = 0.1;
 export const ZOOM_MAX = 8;

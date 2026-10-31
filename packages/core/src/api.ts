@@ -68,6 +68,8 @@ export const CreateProjectRequest = z.object({
   id: IdSchema.optional(),
   name: z.string().trim().min(1).max(120),
   doc: z.unknown(),
+  /** Set by sync when this project is the "(conflicted copy)" of another (ADR-0009). */
+  conflictOf: IdSchema.optional(),
 });
 export const RenameProjectRequest = z.object({ name: z.string().trim().min(1).max(120) });
 export const DuplicateProjectRequest = z.object({ name: z.string().trim().min(1).max(120).optional() }).default({});
@@ -104,3 +106,45 @@ export const CompleteUploadRequest = z.object({
 });
 
 export const AssignPlanRequest = z.object({ planId: z.string().min(1).max(40), days: z.number().int().min(1).max(3660).default(30) });
+
+export const RENDER_QUALITIES = ['draft', 'good', 'high', 'max'] as const;
+export const CreateRenderRequest = z
+  .object({
+    projectId: IdSchema,
+    revision: z.number().int().min(1),
+    width: z.number().int().min(256).max(3840),
+    height: z.number().int().min(256).max(3840),
+    quality: z.enum(RENDER_QUALITIES),
+    frame: z.enum(['preview', 'front', 'back', 'side']),
+    camera: z
+      .object({
+        azimuth: z.number(),
+        polar: z.number().min(0).max(Math.PI),
+        distance: z.number().positive().max(20),
+        target: z.tuple([z.number(), z.number(), z.number()]),
+      })
+      .optional(),
+    transparent: z.boolean().default(false),
+    formats: z.array(z.enum(['png', 'webp'])).min(1).max(2).default(['png', 'webp']),
+  })
+  .refine((r) => r.frame !== 'preview' || r.camera !== undefined, {
+    message: 'camera is required when frame is "preview"',
+    path: ['camera'],
+  });
+
+export const EXPORT_KINDS = ['snapshot', 'print_zip', 'sublimation_zip', 'spec_pdf', 'turntable_video'] as const;
+export const CreateExportRequest = z.object({
+  projectId: IdSchema,
+  revision: z.number().int().min(1),
+  kind: z.enum(EXPORT_KINDS),
+  ranOn: z.enum(['client', 'server']),
+  performedAt: z.iso.datetime({ offset: true }).optional(),
+  params: z
+    .object({
+      dpi: z.union([z.literal(150), z.literal(300)]).optional(),
+      bleedMm: z.number().min(0).max(30).optional(),
+      durationSec: z.number().int().min(3).max(20).optional(),
+      resolution: z.enum(['1080x1080', '1080x1920', '1920x1080']).optional(),
+    })
+    .default({}),
+});

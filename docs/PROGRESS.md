@@ -8,9 +8,9 @@
 | 4 2D editor | ✅ Approved 2026-10-30 | passed | `packages/engine-2d`, document model + dev garment in `packages/core`, editor canvas/panels/history/autosave, 66 tests, `docs/STAGE4_REPORT.md` |
 | E2E + accessibility testing | ✅ Done 2026-10-30 | (requested before Stage 5) | `apps/editor/e2e` (28 tests × 3 browsers), `docs/TEST_REPORT.md` |
 | 5 3D engine | ✅ Approved 2026-10-30 | passed | `packages/engine-3d`, ProjectDoc v2 (look), viewer + snapshot, 81 unit + 96 E2E, `docs/STAGE5_REPORT.md`, ADR-0018 |
-| 6 Backend | 🟡 Awaiting approval | **open** | `apps/api` (46 operations), `infra/dev/compose.yaml`, `packages/core` API contracts + canonical JSON, OpenAPI draft.2, 75 API tests (contract-checked) + 82 unit, `docs/STAGE6_REPORT.md`, ADR-0019 |
-| 7 Rendering and export | ⏳ | – | – |
-| 8 Cloud app (staging) | ⏳ | – | – |
+| 6 Backend | ✅ Approved 2026-10-31 | passed | `apps/api` (46 operations), `infra/dev/compose.yaml`, `packages/core` API contracts + canonical JSON, OpenAPI draft.2, 75 API tests (contract-checked) + 82 unit, `docs/STAGE6_REPORT.md`, ADR-0019 |
+| 7 Rendering and export | ✅ Approved 2026-10-31 | passed | path tracer (`engine-3d/pathtrace.ts`), render dialog, print/sublimation/spec/video exports, renders + exports API, render worker (`render-worker.ts`), `/v1/ws`, `docs/STAGE7_REPORT.md`, ADR-0020 |
+| 8 Cloud app (staging) | 🟡 Awaiting approval | **open** | editor cloud layer (`apps/editor/src/cloud`), local library + sync + merge, project browser, cloud renders, Docker images, staging replica (`infra/staging`), CI workflow (not yet run), `infra/DEPLOY.md`, `docs/STAGE8_REPORT.md`, ADR-0021. Real staging deploy waits for owner accounts |
 | 9 PWA | ⏳ | – | – |
 | 10 Desktop | ⏳ | – | – |
 | 11 Integration | ⏳ | – | – |

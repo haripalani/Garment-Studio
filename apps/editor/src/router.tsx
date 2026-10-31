@@ -35,13 +35,21 @@ function RootError({ error }: ErrorComponentProps) {
 const rootRoute = createRootRoute({ component: Outlet, errorComponent: RootError });
 
 const editorRoute = createRoute({ getParentRoute: () => rootRoute, path: '/', component: EditorShell });
+const authRoute = (kind: 'verify' | 'magic' | 'reset') =>
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: `/auth/${kind}`,
+    component: lazyRouteComponent(() => import('./shell/AuthLanding').then(({ AuthLanding }) => ({ default: () => <AuthLanding kind={kind} /> }))),
+  });
 const galleryRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/ui',
   component: lazyRouteComponent(() => import('./gallery/Gallery'), 'Gallery'),
 });
 
-export const router = createRouter({ routeTree: rootRoute.addChildren([editorRoute, galleryRoute]) });
+export const router = createRouter({
+  routeTree: rootRoute.addChildren([editorRoute, galleryRoute, authRoute('verify'), authRoute('magic'), authRoute('reset')]),
+});
 
 declare module '@tanstack/react-router' {
   interface Register {

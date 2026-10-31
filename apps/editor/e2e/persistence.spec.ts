@@ -1,6 +1,9 @@
 import { test, expect, makePng } from './fixtures';
 
 test.describe('local persistence', () => {
+  // Reloads the whole editor (dev server, software WebGL); slow while GPU render and video tests run in parallel.
+  test.describe.configure({ timeout: 120_000 });
+
   test('restores the design, including images, after a reload', async ({ editor }) => {
     const { page } = editor;
     await editor.addText('KEEP ME');

@@ -59,6 +59,7 @@ export function bakeTexture(
   layers: readonly Layer[],
   fabric: Fabric,
   t: BakeTarget,
+  pxPerMm = PREVIEW_PX_PER_MM,
 ): Out {
   const scene: SheetScene = {
     garment: g,
@@ -69,7 +70,7 @@ export function bakeTexture(
     unit: 'mm',
     env: { asset: assetSource, fxMaxSide: 2048 },
   };
-  const raw = bakePiece(scene, { pieceId: t.pieceId, side: t.side, pxPerMm: PREVIEW_PX_PER_MM, background: true });
+  const raw = bakePiece(scene, { pieceId: t.pieceId, side: t.side, pxPerMm, background: true });
   const needsFilter = fabric.brightness !== 1 || fabric.contrast !== 1;
   if (t.side === 'outside' && !needsFilter) return raw;
   const out = makeCanvas(raw.width, raw.height);
@@ -80,6 +81,9 @@ export function bakeTexture(
   ctx.drawImage(raw, 0, 0);
   return out;
 }
+
+/** Pieces shown on the flat-lay tee (bodies and sleeves). */
+export const SHOWN_PIECES = ['front', 'back', 'sleeveR', 'sleeveL'];
 
 /** The pieces the 3D garment shows, per face. */
 export function bakeTargets(g: GarmentModel, pieceIds: readonly string[]): BakeTarget[] {

@@ -37,4 +37,10 @@ export default async function setup() {
   await seeded.$disconnect();
 
   await fetch(`${MAILPIT}/api/v1/messages`, { method: 'DELETE' });
+
+  // The render worker serves the built editor's render page.
+  execFileSync(process.execPath, ['node_modules/vite/bin/vite.js', 'build', '--logLevel', 'error'], {
+    cwd: new URL('../../editor/', import.meta.url),
+    stdio: 'pipe',
+  });
 }

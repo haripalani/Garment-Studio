@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
 import { Button, Modal, cn } from '@gs/ui';
+import { saveOpenDesign } from '../store/persist';
 import { newDesign } from '../editor/actions';
 import { useToasts } from '../store/toast';
 import { useWorkspace } from '../store/workspace';
@@ -22,8 +23,11 @@ export function NewDesignDialog() {
         <Button
           variant="primary"
           onClick={() => {
-            newDesign();
-            openDialog(null);
+            // The current design is kept (saved first), then a new one starts.
+            void saveOpenDesign().finally(() => {
+              newDesign();
+              openDialog(null);
+            });
           }}
         >
           {t('newDesign.confirm')}

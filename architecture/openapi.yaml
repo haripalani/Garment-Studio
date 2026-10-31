@@ -590,6 +590,9 @@ paths:
                 id: { $ref: '#/components/schemas/Id' }
                 name: { type: string, minLength: 1, maxLength: 120 }
                 doc: { $ref: '#/components/schemas/ProjectDoc' }
+                conflictOf:
+                  description: Sync sets this when the project is the "(conflicted copy)" of another project (ADR-0009)
+                  allOf: [{ $ref: '#/components/schemas/Id' }]
       responses:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -857,6 +860,45 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
 
+  /assets:
+    get:
+      tags: [assets]
+      operationId: assetsFindBySha
+      summary: Find my uploads by content hash (sync fetches a design's images on another device)
+      parameters:
+        - name: sha256
+          in: query
+          required: true
+          description: One or more (repeat the parameter) lowercase hex SHA-256 values
+          schema:
+            oneOf:
+              - { type: string, pattern: '^[a-f0-9]{64}$' }
+              - { type: array, maxItems: 100, items: { type: string, pattern: '^[a-f0-9]{64}$' } }
+        - name: kind
+          in: query
+          schema: { type: string, enum: [artwork, thumbnail], default: artwork }
+      responses:
+        '200':
+          description: Matching assets with a short-lived download URL (only when scanned clean)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      allOf:
+                        - $ref: '#/components/schemas/Asset'
+                        - type: object
+                          properties:
+                            downloadUrl: { type: [string, 'null'], format: uri }
+                            downloadUrlExpiresAt: { type: [string, 'null'], format: date-time }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
   /assets/{assetId}/parts:
     get:
       tags: [assets]
@@ -1120,7 +1162,8 @@ paths:
       description: |
         Exports normally run on the client (works offline); the client then calls this with `ranOn: client`
         so the entitlement `export.create` is counted (exports done while offline are reported on reconnect).
-        `ranOn: server` queues the export on the CPU worker (large sublimation sets, video fallback).
+        `ranOn: server` (a CPU export worker for very large sublimation sets) is not offered yet and answers 501.
+        Over the monthly quota, an export credit is used if the user has one.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -1129,6 +1172,12 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/CreateExportRequest' }
       responses:
+        '404': { $ref: '#/components/responses/NotFound' }
+        '501':
+          description: Server-side exports are not available yet (`server_export_unavailable`)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '201':

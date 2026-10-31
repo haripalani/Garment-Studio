@@ -55,6 +55,10 @@ export class AssetsService {
     return a;
   }
 
+  findBySha(userId: string, sha256: string[], kind: 'artwork' | 'thumbnail'): Promise<Asset[]> {
+    return this.db.asset.findMany({ where: { ownerId: userId, kind, sha256: { in: sha256 }, completed: true, scanStatus: { not: 'rejected' } } });
+  }
+
   private async ticket(a: Asset) {
     if (!a.uploadId) throw new Error(`asset ${a.id} has no upload id`);
     const bytes = Number(a.bytes);

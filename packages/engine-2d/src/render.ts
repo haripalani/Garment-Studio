@@ -87,14 +87,22 @@ export function drawPieceContent(
       ctx.fillRect(-bleed, -bleed, frame.w + bleed * 2, frame.h + bleed * 2);
     }
     drawLayers(ctx, scene, frame);
+    // The grown outline must be one mask: two separate destination-in passes (fill, then stroke)
+    // would keep only their intersection, the bleed band, and erase the piece itself.
+    const { width, height } = ctx.canvas;
+    const mask = maskCanvas(width, height);
+    const m = mask.getContext('2d') as Ctx2D;
+    m.setTransform(ctx.getTransform());
+    outlinePath(m, frame.outline);
+    m.fillStyle = '#000';
+    m.fill();
+    m.lineWidth = bleed * 2;
+    m.lineJoin = 'round';
+    m.strokeStyle = '#000';
+    m.stroke();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = 'destination-in';
-    outlinePath(ctx, frame.outline);
-    ctx.fillStyle = '#000';
-    ctx.fill();
-    ctx.lineWidth = bleed * 2;
-    ctx.lineJoin = 'round';
-    ctx.strokeStyle = '#000';
-    ctx.stroke();
+    ctx.drawImage(mask, 0, 0);
   } else {
     outlinePath(ctx, frame.outline);
     if (opts.background) {
@@ -105,6 +113,14 @@ export function drawPieceContent(
     drawLayers(ctx, scene, frame);
   }
   ctx.restore();
+}
+
+function maskCanvas(w: number, h: number): OffscreenCanvas | HTMLCanvasElement {
+  if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(w, h);
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  return c;
 }
 
 function drawLayers(ctx: Ctx2D, scene: SheetScene, frame: PieceFrame): void {

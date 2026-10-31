@@ -79,10 +79,12 @@ export async function seed(db: PrismaClient, storage: Storage, opts: { publishDe
   });
 }
 
-if (import.meta.url === `file:///${process.argv[1]?.replace(/\\/g, '/')}` || process.argv[1]?.endsWith('seed.ts')) {
+// Run directly (tsx scripts/seed.ts, or the bundled dist/seed.js in images); imported by tests.
+if (/seed\.(ts|js)$/.test(process.argv[1] ?? '')) {
   const config = loadConfig();
   const db = new PrismaClient({ datasourceUrl: config.DATABASE_URL });
-  await seed(db, new Storage(config), { publishDev: config.NODE_ENV !== 'production' });
+  // Staging publishes the development garment too (there are no real garments yet, ADR-0007).
+  await seed(db, new Storage(config), { publishDev: config.NODE_ENV !== 'production' || process.env.SEED_PUBLISH_DEV === 'true' });
   const admin = process.env.SEED_ADMIN_EMAIL;
   if (admin) {
     const r = await db.user.updateMany({ where: { email: admin.toLowerCase() }, data: { role: 'admin' } });

@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Headers, HttpCode, Inject, Param, Post, Res } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Inject, Param, Post, Query, Res } from '@nestjs/common';
+import { z } from 'zod';
 import type { FastifyReply } from 'fastify';
 import { CompleteUploadRequest, CreateUploadRequest } from '@gs/core';
 import { CurrentUser, type Principal } from '../common/http';
@@ -6,6 +7,12 @@ import { Idempotency } from '../common/idempotency';
 import { parse } from '../common/zod';
 import { Jobs } from '../jobs/jobs';
 import { AssetsService, toAssetDto } from './assets.service';
+
+const Sha = z.string().regex(/^[a-f0-9]{64}$/);
+const BySha = z.object({
+  sha256: z.union([Sha, z.array(Sha).max(100)]).transform((v) => (Array.isArray(v) ? v : [v])),
+  kind: z.enum(['artwork', 'thumbnail']).default('artwork'),
+});
 
 @Controller('assets')
 export class AssetsController {
@@ -26,6 +33,14 @@ export class AssetsController {
     const out = await this.idem.run(me.id, 'assets.upload', key, b, () => this.assets.createUpload(me.id, b));
     void reply.status(out.status);
     return out.body;
+  }
+
+  /** Find my clean uploads by content hash (sync: a design opened on another device fetches its images). */
+  @Get()
+  async bySha(@CurrentUser() me: Principal, @Query() query: unknown) {
+    const q = parse(BySha, query);
+    const rows = await this.assets.findBySha(me.id, q.sha256, q.kind);
+    return { items: await Promise.all(rows.map(async (a) => ({ ...toAssetDto(a), ...(await this.assets.download(a)) }))) };
   }
 
   @Get(':assetId/parts')

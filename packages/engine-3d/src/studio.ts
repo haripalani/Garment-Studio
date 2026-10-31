@@ -8,11 +8,43 @@ import { buildGarmentGeometry, MM, type GarmentGeometry, type PanelGeometry } fr
 import { goboShadowAlpha, knitNormalMap, LABEL_SIZES, labelTexture, MATERIAL_PROPS } from './procedural';
 
 export type CameraPreset = 'front' | 'back' | 'side';
+/** Final-render framing: the current view, or a fixed preset framed for the output aspect. */
+export type RenderFrame = 'preview' | CameraPreset;
+
+/** A view as sent to the cloud renderer: spherical position around a target (radians, metres). */
+export interface Orbit {
+  azimuth: number;
+  polar: number;
+  distance: number;
+  target: [number, number, number];
+}
 export type Quality = 'adaptive' | 'full' | 'half' | 'quarter';
 
 const QUALITY_SCALE: Record<Quality, number> = { adaptive: 1, full: 1, half: 0.5, quarter: 0.25 };
 const AZIMUTH: Record<CameraPreset, number> = { front: 0, back: Math.PI, side: Math.PI / 2 };
 const BACKDROP_Z = -0.42;
+const FRAME_MARGIN = 1.22;
+/** Distance of the inside face behind the outside face (metres). */
+const INSIDE_OFFSET = 0.4 * MM;
+
+/** Camera distance that fits a garment of size w × h (metres) for a vertical fov and aspect. */
+export function fitDistance(size: { w: number; h: number }, fovDeg: number, aspect: number): number {
+  const fov = (fovDeg * Math.PI) / 180;
+  const fitH = (size.h + 0.16) / 2 / Math.tan(fov / 2);
+  const fitW = size.w / 2 / Math.tan(fov / 2) / Math.max(aspect, 0.2);
+  return Math.max(fitH, fitW) * FRAME_MARGIN;
+}
+
+/** What the path tracer temporarily sees: everything the live view shows, set up for one camera. */
+export interface PathTraceScene {
+  scene: THREE.Scene;
+  camera: THREE.PerspectiveCamera;
+  exposure: number;
+  /** Studio environment as an equirect float map (CPU pixels), or null when HDRI is off. */
+  environment: THREE.DataTexture | null;
+  /** Fill light when HDRI is off (the path tracer has no hemisphere light). */
+  ambient: { top: string; bottom: string; intensity: number };
+}
 
 interface PanelMeshes {
   geom: PanelGeometry;
@@ -62,6 +94,7 @@ export class Studio {
   private anim: { from: number; to: number; start: number; dur: number } | null = null;
   private disposed = false;
   private framing = { distance: 2.6, target: new THREE.Vector3(0, 0.03, 0) };
+  private envEquirect: THREE.DataTexture | null = null;
 
   constructor(
     readonly canvas: HTMLCanvasElement,
@@ -204,6 +237,20 @@ export class Studio {
       g.setAttribute('color', new THREE.BufferAttribute(ao, 3));
       g.setIndex(new THREE.BufferAttribute(pg.indices, 1));
       g.computeVertexNormals();
+      // The inside face is its own surface, 0.4 mm behind the outside one. Coincident surfaces are
+      // invisible to rasterisation (back faces are culled) but a path tracer hits either at random,
+      // letting light and shadow leak through the fabric.
+      const gi = g.clone();
+      const pos = gi.getAttribute('position') as THREE.BufferAttribute;
+      const nrm = gi.getAttribute('normal') as THREE.BufferAttribute;
+      for (let i = 0; i < pos.count; i++) {
+        pos.setXYZ(
+          i,
+          pos.getX(i) - nrm.getX(i) * INSIDE_OFFSET,
+          pos.getY(i) - nrm.getY(i) * INSIDE_OFFSET,
+          pos.getZ(i) - nrm.getZ(i) * INSIDE_OFFSET,
+        );
+      }
       const make = (side: THREE.Side) =>
         new THREE.MeshPhysicalMaterial({
           side,
@@ -214,7 +261,7 @@ export class Studio {
           sheenRoughness: 0.8,
         });
       const outer = new THREE.Mesh(g, make(THREE.FrontSide));
-      const inner = new THREE.Mesh(g, make(THREE.BackSide));
+      const inner = new THREE.Mesh(gi, make(THREE.BackSide));
       for (const m of [outer, inner]) {
         m.castShadow = true;
         m.receiveShadow = true;
@@ -243,6 +290,7 @@ export class Studio {
   private clearGarment(): void {
     for (const p of this.panels) {
       p.outer.geometry.dispose();
+      p.inner.geometry.dispose();
       p.outer.material.dispose();
       p.inner.material.dispose();
       p.outer.customDepthMaterial?.dispose();
@@ -407,11 +455,7 @@ export class Studio {
 
   private frameGarment(): void {
     if (!this.geometry) return;
-    const { w, h } = this.geometry.size;
-    const fov = (this.camera.fov * Math.PI) / 180;
-    const fitH = (h + 0.16) / 2 / Math.tan(fov / 2);
-    const fitW = w / 2 / Math.tan(fov / 2) / Math.max(this.camera.aspect, 0.2);
-    this.framing.distance = Math.max(fitH, fitW) * 1.22;
+    this.framing.distance = fitDistance(this.geometry.size, this.camera.fov, this.camera.aspect);
     this.framing.target.set(0, 0.04, 0);
     // Keep the current viewing direction, apply the fitted distance.
     if (!this.interacting && !this.anim) {
@@ -512,10 +556,178 @@ export class Studio {
     this.opts.onRender?.();
   }
 
-  private syncRig(): void {
-    const az = Math.atan2(this.camera.position.x - this.controls.target.x, this.camera.position.z - this.controls.target.z);
+  private syncRig(camera: THREE.Camera = this.camera, target: THREE.Vector3 = this.controls.target): void {
+    const az = Math.atan2(camera.position.x - target.x, camera.position.z - target.z);
     this.rig.rotation.y = az;
     this.scene.environmentRotation.set(0, this.hdriRotation + az, 0);
+  }
+
+  /**
+   * A camera for a final render at `aspect`. "preview" keeps the current view direction and zoom,
+   * re-fitted so the garment frames the same way at the new aspect; presets use the fitted distance.
+   */
+  cameraFor(frame: RenderFrame, aspect: number, orbit?: Orbit): THREE.PerspectiveCamera {
+    const cam = this.camera.clone();
+    cam.aspect = aspect;
+    cam.updateProjectionMatrix();
+    const size = this.geometry?.size ?? { w: 0.6, h: 0.8 };
+    if (frame === 'preview' && orbit) {
+      const target = new THREE.Vector3(...orbit.target);
+      cam.position.setFromSphericalCoords(orbit.distance, orbit.polar, orbit.azimuth).add(target);
+      cam.lookAt(target);
+      cam.updateMatrixWorld();
+      cam.userData.target = target;
+      return cam;
+    }
+    const target = frame === 'preview' ? this.controls.target.clone() : this.framing.target.clone();
+    if (frame === 'preview') {
+      const offset = this.camera.position.clone().sub(this.controls.target);
+      const zoom = offset.length() / fitDistance(size, this.camera.fov, this.camera.aspect);
+      offset.setLength(fitDistance(size, cam.fov, aspect) * zoom);
+      cam.position.copy(target).add(offset);
+    } else {
+      const d = fitDistance(size, cam.fov, aspect);
+      const az = AZIMUTH[frame];
+      cam.position.set(Math.sin(az) * d, target.y + 0.05, Math.cos(az) * d);
+    }
+    cam.lookAt(target);
+    cam.updateMatrixWorld();
+    cam.userData.target = target;
+    return cam;
+  }
+
+  /**
+   * Lends the scene to `use`, arranged for `camera` (rig turned to it, backdrop hidden for transparent
+   * output), then restores the live view. The path tracer copies everything it needs during `use`.
+   */
+  async withPathTraceScene<T>(
+    camera: THREE.PerspectiveCamera,
+    opts: { transparent: boolean },
+    use: (s: PathTraceScene) => Promise<T>,
+  ): Promise<T> {
+    const hdri = this.look?.scene.hdri ?? true;
+    const prev = { backdrop: this.backdrop.visible, gobo: this.gobo.visible, environment: this.scene.environment };
+    this.syncRig(camera, camera.userData.target as THREE.Vector3);
+    if (opts.transparent) {
+      this.backdrop.visible = false;
+      this.gobo.visible = false;
+    }
+    try {
+      return await use({
+        scene: this.scene,
+        camera,
+        exposure: this.renderer.toneMappingExposure,
+        environment: hdri ? this.environmentEquirect() : null,
+        ambient: { top: '#ffffff', bottom: '#8a8a8a', intensity: hdri ? 0 : 0.35 },
+      });
+    } finally {
+      this.backdrop.visible = prev.backdrop;
+      this.gobo.visible = prev.gobo;
+      this.scene.environment = prev.environment;
+      this.syncRig();
+      this.requestRender();
+    }
+  }
+
+  /**
+   * The studio room environment as an equirectangular float map with its pixels on the CPU (made once).
+   * The path tracer runs in its own WebGL context and builds an importance-sampling table from the
+   * pixel data, so a GPU-only texture from this context would arrive black.
+   */
+  private environmentEquirect(): THREE.DataTexture {
+    if (!this.envEquirect) {
+      const cube = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType });
+      const room = new RoomEnvironment();
+      new THREE.CubeCamera(0.1, 100, cube).update(this.renderer, room);
+      room.dispose();
+      const W = 512;
+      const H = 256;
+      const target = new THREE.WebGLRenderTarget(W, H, { type: THREE.FloatType });
+      const quad = new THREE.Mesh(
+        new THREE.PlaneGeometry(2, 2),
+        new THREE.ShaderMaterial({
+          uniforms: { cube: { value: cube.texture } },
+          vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+          // Same convention as three's equirect sampling: u = atan(z, x), v = asin(y).
+          fragmentShader: `
+            varying vec2 vUv; uniform samplerCube cube;
+            void main() {
+              float phi = (vUv.x - 0.5) * 6.28318530718;
+              float theta = (vUv.y - 0.5) * 3.14159265359;
+              vec3 dir = vec3(cos(theta) * cos(phi), sin(theta), cos(theta) * sin(phi));
+              gl_FragColor = vec4(textureCube(cube, dir).rgb, 1.0);
+            }`,
+          depthTest: false,
+        }),
+      );
+      const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+      const prev = this.renderer.getRenderTarget();
+      this.renderer.setRenderTarget(target);
+      this.renderer.render(quad, cam);
+      const data = new Float32Array(W * H * 4);
+      this.renderer.readRenderTargetPixels(target, 0, 0, W, H, data);
+      this.renderer.setRenderTarget(prev);
+      quad.geometry.dispose();
+      quad.material.dispose();
+      target.dispose();
+      cube.dispose();
+      const tex = new THREE.DataTexture(data, W, H, THREE.RGBAFormat, THREE.FloatType);
+      tex.mapping = THREE.EquirectangularReflectionMapping;
+      tex.magFilter = tex.minFilter = THREE.LinearFilter;
+      tex.colorSpace = THREE.LinearSRGBColorSpace;
+      tex.needsUpdate = true;
+      this.envEquirect = tex;
+    }
+    return this.envEquirect;
+  }
+
+  /** A second renderer drawing this scene off screen (turntable video, spec sheet). */
+  offscreenView(width: number, height: number, opts: { transparent?: boolean } = {}) {
+    const canvas = createCanvas(width, height);
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
+    renderer.setPixelRatio(1);
+    renderer.setSize(width, height, false);
+    renderer.outputColorSpace = this.renderer.outputColorSpace;
+    renderer.toneMapping = this.renderer.toneMapping;
+    renderer.toneMappingExposure = this.renderer.toneMappingExposure;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
+    // GPU textures belong to one WebGL context: this renderer needs its own copy of the studio
+    // environment (the live one would sample as black here).
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const env = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    pmrem.dispose();
+    const camera = this.cameraFor('front', width / height);
+    const target = camera.userData.target as THREE.Vector3;
+    const distance = camera.position.distanceTo(target);
+    const y = camera.position.y;
+    return {
+      canvas,
+      /** Draw the garment turned to `azimuth` (radians, 0 = front). */
+      render: (azimuth: number) => {
+        camera.position.set(Math.sin(azimuth) * distance, y, Math.cos(azimuth) * distance);
+        camera.lookAt(target);
+        camera.updateMatrixWorld();
+        const vis = { b: this.backdrop.visible, g: this.gobo.visible };
+        if (opts.transparent) this.backdrop.visible = this.gobo.visible = false;
+        this.syncRig(camera, target);
+        const liveEnv = this.scene.environment;
+        if (liveEnv) this.scene.environment = env;
+        try {
+          renderer.render(this.scene, camera);
+        } finally {
+          this.scene.environment = liveEnv;
+          this.backdrop.visible = vis.b;
+          this.gobo.visible = vis.g;
+          this.syncRig();
+        }
+      },
+      dispose: () => {
+        env.dispose();
+        renderer.dispose();
+        renderer.forceContextLoss();
+      },
+    };
   }
 
   /** Renders the current view at a higher resolution and returns a PNG (or WebP). */
@@ -532,6 +744,13 @@ export class Studio {
     this.requestRender();
     if (!blob) throw new Error('Snapshot failed');
     return blob;
+  }
+
+  /** The current view as an orbit (for cloud renders of "as in 3D preview"). */
+  orbit(): Orbit {
+    const s = new THREE.Spherical().setFromVector3(this.camera.position.clone().sub(this.controls.target));
+    const t = this.controls.target;
+    return { azimuth: s.theta, polar: s.phi, distance: s.radius, target: [t.x, t.y, t.z] };
   }
 
   /** Stats for tests and diagnostics. */
@@ -557,11 +776,30 @@ export class Studio {
     this.gobo.material.dispose();
     this.gobo.geometry.dispose();
     this.env.dispose();
+    this.envEquirect?.dispose();
     this.backdrop.geometry.dispose();
     this.backdrop.material.dispose();
     this.controls.dispose();
     this.renderer.dispose();
   }
+}
+
+export function createCanvas(width: number, height: number): HTMLCanvasElement | OffscreenCanvas {
+  if (typeof document !== 'undefined') {
+    const c = document.createElement('canvas');
+    c.width = width;
+    c.height = height;
+    return c;
+  }
+  return new OffscreenCanvas(width, height);
+}
+
+/** PNG / WebP bytes from either canvas kind. */
+export async function canvasBlob(canvas: HTMLCanvasElement | OffscreenCanvas, type: string, quality = 0.92): Promise<Blob> {
+  if ('convertToBlob' in canvas) return canvas.convertToBlob({ type, quality });
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, type, quality));
+  if (!blob) throw new Error(`Could not encode ${type}`);
+  return blob;
 }
 
 /** Concatenate tube geometries (same attribute layout) into one. */

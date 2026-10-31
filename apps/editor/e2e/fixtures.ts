@@ -3,20 +3,31 @@ import { test as base, expect, type Page } from '@playwright/test';
 type Vec = [number, number];
 
 /** A page with the tour marked done and a clean local store, ready on the editor. */
-export const test = base.extend<{ editor: Editor }>({
-  editor: async ({ page }, use) => {
-    await page.addInitScript(() => {
+export const test = base.extend<{ editor: Editor; viewMode: 'pattern' | 'split' | '3d' }>({
+  /** Initial view; tests that don't need the live 3D preview use 'pattern' (much less CPU). */
+  viewMode: ['split', { option: true }],
+  editor: async ({ page, viewMode }, use, testInfo) => {
+    await page.addInitScript((mode) => {
       // Fresh state per test: tour done, default prefs; IndexedDB is cleared below.
       if (!sessionStorage.getItem('gs:e2e-init')) {
         localStorage.clear();
         localStorage.setItem(
           'gs:prefs',
-          JSON.stringify({ state: { theme: 'dark', viewMode: 'split', unit: 'cm', locale: 'en', tourDone: true }, version: 0 }),
+          JSON.stringify({ state: { theme: 'dark', viewMode: mode, unit: 'cm', locale: 'en', tourDone: true }, version: 0 }),
         );
         indexedDB.deleteDatabase('keyval-store');
         sessionStorage.setItem('gs:e2e-init', '1');
       }
-    });
+    }, viewMode);
+    if (process.env.E2E_DEBUG) {
+      // Opt-in diagnostics: API traffic and page errors in the test output.
+      const tag = `[${testInfo.title.slice(0, 18)}] +${() => 0}`.split(' +')[0];
+      const t0 = Date.now();
+      const log = (...a: unknown[]) => console.log(tag, `${((Date.now() - t0) / 1000).toFixed(1)}s`, ...a);
+      page.on('response', (r) => r.url().includes(':4000') && log('API', r.request().method(), r.url().slice(21, 90), r.status()));
+      page.on('requestfailed', (r) => log('FAILED', r.url().slice(0, 90), r.failure()?.errorText));
+      page.on('console', (m) => m.type() === 'error' && log('CONSOLE', m.text().slice(0, 300)));
+    }
     await page.goto('/');
     const editor = new Editor(page);
     await editor.ready();

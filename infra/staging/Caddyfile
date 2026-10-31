@@ -1,0 +1,21 @@
+# One public origin for the app and its API (cookies stay first-party), plus the storage host that
+# presigned URLs point at. Caddy issues local certificates ("tls internal").
+{
+	auto_https disable_redirects
+}
+
+gs.localhost:8443 {
+	tls internal
+	handle /v1/* {
+		reverse_proxy api:4000
+	}
+	handle {
+		reverse_proxy editor:80
+	}
+}
+
+s3.gs.localhost:8443 {
+	tls internal
+	# The Host header is kept as-is: presigned signatures include it.
+	reverse_proxy s3:8333
+}

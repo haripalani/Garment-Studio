@@ -133,6 +133,23 @@ describe('uploads', () => {
   });
 });
 
+describe('lookup by content hash (sync on another device)', () => {
+  it("finds my clean uploads by SHA-256 with download links, never other users' files", async () => {
+    const a = png(9, 9, [1, 1, 1]);
+    const b = png(9, 9, [2, 2, 2]);
+    const ua = (await upload(c, a, 'image/png')).asset;
+    const ub = (await upload(c, b, 'image/png')).asset;
+    await scanned(c, ua.id);
+    await scanned(c, ub.id);
+    const found = await c.get(`/assets?sha256=${sha256(a)}&sha256=${sha256(b)}&sha256=${'0'.repeat(64)}`);
+    expect(found.body.items.map((x: { id: string }) => x.id).sort()).toEqual([ua.id, ub.id].sort());
+    expect(found.body.items.every((x: { downloadUrl: string | null }) => x.downloadUrl)).toBe(true);
+    const other = (await signUp(s.base)).c;
+    expect((await other.get(`/assets?sha256=${sha256(a)}`)).body.items).toEqual([]);
+    expect((await c.get('/assets?sha256=nothex')).status).toBe(422);
+  });
+});
+
 describe('assets in projects', () => {
   it('a document may reference an uploaded image; thumbnails attach to projects', async () => {
     const bytes = png(32, 32, [0, 128, 255]);

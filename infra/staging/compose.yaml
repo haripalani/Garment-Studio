@@ -1,0 +1,100 @@
+# Staging replica: the production images behind HTTPS on this machine (ADR-0016). It exercises what
+# local development doesn't: production builds, TLS, Secure cookies, one public origin, presigned
+# storage behind a proxy, and the API's production config checks.
+#   node infra/staging/make-env.mjs      (once: writes .env and s3.json with fresh secrets)
+#   docker compose -f infra/staging/compose.yaml --env-file infra/staging/.env up -d --build
+# Then open https://gs.localhost:8443 (Caddy's local certificate; trust it or accept the warning).
+name: garment-studio-staging
+
+x-api-env: &api-env
+  NODE_ENV: production
+  PORT: '4000'
+  DATABASE_URL: postgresql://gs:gs-staging-db@postgres:5432/gs
+  REDIS_URL: redis://redis:6379/0
+  CORS_ORIGINS: https://gs.localhost:8443
+  APP_URL: https://gs.localhost:8443
+  JWT_PRIVATE_JWK: ${JWT_PRIVATE_JWK}
+  IP_HASH_SECRET: ${IP_HASH_SECRET}
+  COOKIE_SECURE: 'true'
+  S3_ENDPOINT: http://s3:8333
+  S3_PUBLIC_ENDPOINT: https://s3.gs.localhost:8443
+  S3_REGION: us-east-1
+  S3_BUCKET: gs-staging
+  S3_PUBLIC_BUCKET: gs-staging-public
+  S3_ACCESS_KEY: gs-staging-access
+  S3_SECRET_KEY: ${S3_SECRET_KEY}
+  S3_FORCE_PATH_STYLE: 'true'
+  PUBLIC_ASSET_BASE: https://s3.gs.localhost:8443/gs-staging-public
+  SMTP_URL: smtp://mailpit:1025
+  MAIL_FROM: Garment Studio Staging <no-reply@staging.garmentstudio.example>
+  ANTIVIRUS: clamav
+  CLAMAV_HOST: clamav
+  CLAMAV_PORT: '3310'
+  PASSWORD_BREACH_CHECK: 'false'
+  DEFAULT_PLAN: free
+  RUN_WORKERS: 'true'
+  TRUST_PROXY: 'true'
+
+services:
+  postgres:
+    image: postgres:17.6-alpine
+    environment: { POSTGRES_USER: gs, POSTGRES_PASSWORD: gs-staging-db, POSTGRES_DB: gs }
+    volumes: ['pg:/var/lib/postgresql/data']
+    healthcheck: { test: ['CMD-SHELL', 'pg_isready -U gs'], interval: 2s, retries: 30 }
+
+  redis:
+    image: redis:7.4-alpine
+
+  s3:
+    image: chrislusf/seaweedfs:4.51
+    command: server -dir=/data -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json -volume.max=0 -master.volumeSizeLimitMB=256 -master.telemetry=false
+    volumes: ['s3:/data', './s3.json:/etc/seaweedfs/s3.json:ro']
+
+  mailpit:
+    image: axllent/mailpit:v1.27
+    ports: ['127.0.0.1:58125:8025']
+
+  clamav:
+    image: clamav/clamav:1.4
+    healthcheck: { test: ['CMD', 'clamdcheck.sh'], interval: 10s, retries: 60 }
+
+  # Release step: migrations + seed, before the API takes traffic.
+  migrate:
+    build: { context: ../.., dockerfile: apps/api/Dockerfile }
+    image: garment-studio/api:staging
+    environment: { <<: *api-env, SEED_PUBLISH_DEV: 'true' }
+    command: ['sh', '-c', 'node node_modules/prisma/build/index.js migrate deploy && node dist/seed.js']
+    depends_on: { postgres: { condition: service_healthy }, s3: { condition: service_started } }
+
+  api:
+    image: garment-studio/api:staging
+    environment: *api-env
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_started }
+      clamav: { condition: service_healthy }
+
+  editor:
+    build: { context: ../.., dockerfile: apps/editor/Dockerfile, args: { VITE_API_URL: /v1 } }
+    image: garment-studio/editor:staging
+
+  proxy:
+    image: caddy:2.10.2-alpine
+    ports: ['127.0.0.1:8443:8443']
+    volumes: ['./Caddyfile:/etc/caddy/Caddyfile:ro', 'caddy:/data']
+    depends_on: [api, editor, s3]
+
+  # GPU render worker: needs a GPU node (RENDER_CHROMIUM_ARGS); software rendering is far too slow.
+  worker:
+    profiles: ['gpu']
+    build: { context: ../.., dockerfile: apps/api/Dockerfile.worker }
+    image: garment-studio/render-worker:staging
+    environment: { <<: *api-env, RUN_WORKERS: 'false', RENDER_CHROMIUM_ARGS: '${RENDER_CHROMIUM_ARGS:-}' }
+    volumes: ['worker:/data']
+    depends_on: { api: { condition: service_started } }
+
+volumes:
+  pg:
+  s3:
+  caddy:
+  worker:

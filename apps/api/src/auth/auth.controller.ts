@@ -42,13 +42,18 @@ export class AuthController {
     const maxAge = s.persistent ? Math.floor((s.refreshExpiresAt.getTime() - Date.now()) / 1000) : undefined;
     const base = { secure: this.config.COOKIE_SECURE, sameSite: 'lax' as const, ...(maxAge ? { maxAge } : {}) };
     void reply.setCookie(REFRESH_COOKIE, s.refreshToken, { ...base, httpOnly: true, path: '/v1/auth' });
-    void reply.setCookie(CSRF_COOKIE, s.csrfToken, { ...base, httpOnly: false, path: '/' });
+    void reply.setCookie(CSRF_COOKIE, s.csrfToken, {
+      ...base,
+      httpOnly: false,
+      path: '/',
+      ...(this.config.COOKIE_DOMAIN ? { domain: this.config.COOKIE_DOMAIN } : {}),
+    });
     return { accessToken: s.accessToken, expiresIn: s.expiresIn, csrfToken: s.csrfToken, user: toUserDto(s.user) };
   }
 
   private clearCookies(reply: FastifyReply) {
     void reply.clearCookie(REFRESH_COOKIE, { path: '/v1/auth' });
-    void reply.clearCookie(CSRF_COOKIE, { path: '/' });
+    void reply.clearCookie(CSRF_COOKIE, { path: '/', ...(this.config.COOKIE_DOMAIN ? { domain: this.config.COOKIE_DOMAIN } : {}) });
   }
 
   /** Double-submit CSRF check plus an Origin allow-list, for requests authenticated by cookie. */
@@ -130,8 +135,10 @@ export class AuthController {
     await this.auth.resetPassword(b.token, b.password, this.client(req));
   }
 
+  // Not the strict sign-in class: a refresh needs an unguessable token, and every page load in every
+  // tab refreshes (a shared office IP would otherwise hit the limit).
   @Public()
-  @Rate('auth')
+  @Rate('write')
   @Post('refresh')
   @HttpCode(200)
   async refresh(@Body() body: unknown, @Req() req: AppRequest, @Res({ passthrough: true }) reply: FastifyReply) {

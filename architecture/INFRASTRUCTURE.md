@@ -154,3 +154,10 @@ A restore drill (staging, from the production dump) runs quarterly, plus once be
 ## 8. Rough monthly cost at launch (excluding GPU usage)
 
 Cloudflare Pages/R2 ~$5–20 · Fly API (2× shared-2x + workers) ~$40–80 · Neon Launch ~$19–69 · Upstash ~$10–30 · Sentry Team ~$26 · Grafana Cloud free–$50 · Postmark ~$15 → **≈ $120–290 / month**, plus GPU at per-second rates. These are list-price estimates to confirm before Stage 8.
+
+## Render workers (Stage 7, ADR-0020)
+- **Process:** `node dist/render-worker.js` from `apps/api`, plus the built editor (`RENDER_PAGE_DIR`) and Playwright's Chromium in the image.
+- **Capacity:** one job per GPU (BullMQ concurrency 1).
+- **GPU backend:** set with `RENDER_CHROMIUM_ARGS`. On Linux NVIDIA nodes, validate `--use-angle=vulkan` (or EGL) on staging, and confirm the GPU line the worker logs at start isn't SwiftShader.
+- **Shader cache:** keep `RENDER_PROFILE_DIR` on a persistent volume so the compiled-shader cache survives restarts; the first compile can take about a minute.
+- **Readiness:** the worker renders a 1-sample warm-up frame before taking jobs.

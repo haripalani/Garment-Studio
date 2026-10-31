@@ -12,6 +12,9 @@ test.describe('pattern editor', () => {
   });
 
   test('drags a layer from the front onto the back piece', async ({ editor }) => {
+    // Each pointer move re-bakes both pieces and redraws the live 3D view in software WebGL: ~35 s alone
+    // (the same drag takes under 1 s with the 3D view closed), so it needs the slow budget under load.
+    test.slow();
     await editor.addText('MOVE ME');
     const [l] = await editor.layers();
     const from = await editor.at('front', [l!.x, l!.y]);

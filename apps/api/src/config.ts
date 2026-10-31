@@ -32,7 +32,16 @@ const EnvSchema = z
     }),
     IP_HASH_SECRET: z.string().min(32),
     COOKIE_SECURE: bool,
+    /** Parent domain for the readable CSRF cookie when the editor and API are on sibling subdomains
+     * (e.g. ".garmentstudio.example"); unset = host-only (local development). */
+    COOKIE_DOMAIN: z
+      .string()
+      .optional()
+      .transform((v) => v || undefined),
     S3_ENDPOINT: z.url(),
+    /** Address browsers use for presigned uploads/downloads when it differs from S3_ENDPOINT
+     * (e.g. storage behind a reverse proxy or a custom domain). Defaults to S3_ENDPOINT. */
+    S3_PUBLIC_ENDPOINT: z.url().optional(),
     S3_REGION: z.string().min(1),
     S3_BUCKET: z.string().min(3),
     S3_PUBLIC_BUCKET: z.string().min(3),
@@ -49,6 +58,16 @@ const EnvSchema = z
     DEFAULT_PLAN: z.string().min(1),
     RUN_WORKERS: bool,
     TRUST_PROXY: bool,
+    /** Sign-in attempts per minute per IP (ADR-0010: 10). Raised only for local development and tests. */
+    RATE_AUTH_PER_MIN: z.coerce.number().int().min(1).max(10_000).default(10),
+    /** Render worker only: the built editor (apps/editor/dist) that holds render.html. */
+    RENDER_PAGE_DIR: z.string().optional(),
+    /** Extra Chromium flags for the render worker's GPU (e.g. "--use-angle=vulkan" on Linux GPU nodes). */
+    RENDER_CHROMIUM_ARGS: list.optional(),
+    /** Render worker: Chromium profile folder (keeps the compiled-shader cache across restarts). */
+    RENDER_PROFILE_DIR: z.string().optional(),
+    /** Test environments only: fixed sample count instead of the quality's. */
+    RENDER_SAMPLES_OVERRIDE: z.coerce.number().int().min(1).optional(),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production' && env.ANTIVIRUS === 'off') {
@@ -56,6 +75,9 @@ const EnvSchema = z
     }
     if (env.NODE_ENV === 'production' && !env.COOKIE_SECURE) {
       ctx.addIssue({ code: 'custom', path: ['COOKIE_SECURE'], message: 'must be true in production' });
+    }
+    if (env.NODE_ENV === 'production' && env.RENDER_SAMPLES_OVERRIDE !== undefined) {
+      ctx.addIssue({ code: 'custom', path: ['RENDER_SAMPLES_OVERRIDE'], message: 'not allowed in production' });
     }
     if (env.ANTIVIRUS === 'clamav' && (!env.CLAMAV_HOST || !env.CLAMAV_PORT)) {
       ctx.addIssue({ code: 'custom', path: ['CLAMAV_HOST'], message: 'CLAMAV_HOST and CLAMAV_PORT are required' });

@@ -78,3 +78,28 @@ docker compose -f infra/dev/compose.yaml up -d
 ```bash
 corepack pnpm --filter @gs/api test
 ```
+
+## Update: Stage 7 (rendering and export)
+- **Unit: 96** (engine-3d +4 render plan/framing; editor +6 PNG DPI chunk, print targets, durations).
+- **API: 84**, including 9 render/export/live-event tests. A real GPU render worker (headless Chromium driving the editor's render page) renders end to end; outputs, alpha, events, cancellation, retries, quotas and credits are all checked. Every response is contract-checked, and all 53 HTTP operations are exercised.
+- **Editor E2E:** 5 new tests, for print ZIP, sublimation ZIP (pixel check), spec PDF, turntable video and the GPU path-traced local render.
+  - These heavy tests run in `*-exports` projects after the interaction tests, one browser at a time.
+  - The GPU render test runs in Chromium with ANGLE/D3D11 on Windows and is skipped without a GPU.
+  - Result: **109 passed, 8 skipped** (by design) on Chromium, Firefox and WebKit.
+- **Load and stability changes:**
+  - On-demand libraries are pre-bundled by the dev server; late discovery had reloaded every open page mid-test.
+  - Heavy tests are isolated, because they starved interaction tests when run in parallel.
+  - The persistence spec has a 120 s budget.
+
+## Update: Stage 8 (cloud app and staging)
+- **Unit: 105** (core +13: three-way merge, ids).
+- **API: 87** (+ hash lookup, conflicted-copy link, refresh rate class, browser preflight for PUT/PATCH/DELETE).
+- **Cloud E2E:** 5 tests × 3 browsers against the real API and Mailpit, with two browser contexts as two devices:
+  - sign-up, email link and reload
+  - wrong password, magic link and log out
+  - live sync between devices
+  - an offline conflict producing a conflicted copy
+  - the project browser
+- **Staging replica smoke:** 1 test × 3 browsers on the production images over HTTPS (`playwright.staging.config.ts`).
+- **CI workflow** written (`.github/workflows/ci.yml`), not run yet: it needs a push.
+- **Final full E2E run:** 105 passed, 6 skipped by design, 1 heavy-phase timeout (the GPU render test under load), so 20 chained heavy tests didn't run. Local runs now use 2 workers.

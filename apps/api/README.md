@@ -36,6 +36,25 @@ The API listens on http://localhost:4000/v1. Health is at `/v1/health`.
 
 `SEED_ADMIN_EMAIL=you@example.com corepack pnpm --filter @gs/api db:seed` promotes an existing account to admin (needed to assign plans).
 
+## Render worker (cloud renders, ADR-0013/0020)
+
+The worker is a separate process from the same codebase. It drives the editor's render page (`apps/editor/render.html`) in headless Chromium on the GPU.
+
+```bash
+corepack pnpm --filter @gs/editor build
+```
+```bash
+corepack pnpm --filter @gs/api build
+```
+```bash
+node --env-file=apps/api/.env apps/api/dist/render-worker.js
+```
+
+- `RENDER_PAGE_DIR` points at `apps/editor/dist`.
+- `RENDER_CHROMIUM_ARGS` selects the GPU backend: `--use-angle=d3d11` on Windows; Linux GPU nodes are to be validated on staging.
+- Without a GPU flag, Chromium falls back to software rendering, which is far too slow for real renders.
+- The worker logs the GPU it found, then does a 1-sample warm-up render so the path tracer's shader is compiled before the first job.
+
 ## Test
 
 ```bash
@@ -46,10 +65,12 @@ The suite runs against the services above and needs them running. It uses its ow
 
 Every HTTP response the tests receive is validated against `architecture/openapi.yaml`.
 
+The render tests start the worker in-process against a fresh editor build (the setup runs `vite build`), with 4 samples per render. They use the machine's GPU when `RENDER_CHROMIUM_ARGS` is set in `.env`.
+
 ## Build
 
 ```bash
 corepack pnpm --filter @gs/api build
 ```
 
-This produces `dist/main.js`: one ESM bundle with npm dependencies kept external. Run it with `node --env-file=.env dist/main.js`.
+This produces `dist/main.js` (the API) and `dist/render-worker.js` (the render worker): ESM bundles with npm dependencies kept external. Run the API with `node --env-file=.env dist/main.js`.

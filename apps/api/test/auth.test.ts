@@ -107,6 +107,14 @@ describe('sessions and refresh tokens', () => {
     expect((await c.post('/auth/refresh', undefined, { headers: { 'x-csrf-token': c.csrf! } })).status).toBe(401);
   });
 
+  it('session refresh is not in the strict sign-in limit (page loads in many tabs share an IP)', async () => {
+    const { c } = await signUp(s.base, { verified: false });
+    for (let i = 0; i < 15; i++) {
+      const r = c.adopt(await c.post('/auth/refresh', undefined, { headers: { 'x-csrf-token': c.csrf! } }));
+      expect(r.status).toBe(200);
+    }
+  });
+
   it('only one of two concurrent refreshes with the same token succeeds', async () => {
     const { c } = await signUp(s.base, { verified: false });
     const h = { headers: { 'x-csrf-token': c.csrf! } };

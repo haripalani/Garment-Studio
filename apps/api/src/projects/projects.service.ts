@@ -8,6 +8,7 @@ import { Audit } from '../audit/audit';
 import { Entitlements } from '../entitlements/entitlements';
 import { Db } from '../infra/prisma';
 import { Storage } from '../infra/storage';
+import { Events } from '../events/events';
 
 export const MAX_DOC_BYTES = 2 * 1024 * 1024;
 export const TRASH_DAYS = 30;
@@ -36,6 +37,7 @@ export class ProjectsService {
     @Inject(Entitlements) private readonly entitlements: Entitlements,
     @Inject(Storage) private readonly storage: Storage,
     @Inject(Audit) private readonly audit: Audit,
+    @Inject(Events) private readonly events: Events,
   ) {}
 
   async summary(p: ProjectWithThumb) {
@@ -137,13 +139,19 @@ export class ProjectsService {
     await tx.asset.updateMany({ where: { id: { in: assetIds } }, data: { lastRefAt: new Date() } });
   }
 
-  async create(userId: string, platform: ClientPlatform, b: { id?: string | undefined; name: string; doc: unknown }) {
+  async create(
+    userId: string,
+    platform: ClientPlatform,
+    b: { id?: string | undefined; name: string; doc: unknown; conflictOf?: string | undefined },
+  ) {
     await this.requireVerified(userId);
     const { doc, bytes } = this.parseDoc(b.doc);
     await this.assertGarment(userId, doc, false);
     await this.entitlements.check(userId, 'project.create');
     const assetIds = await this.assertAssets(userId, doc);
     const id = b.id ?? newId();
+    const conflictOf =
+      b.conflictOf && (await this.db.project.findFirst({ where: { id: b.conflictOf, ownerId: userId } })) ? b.conflictOf : null;
     try {
       await this.db.$transaction(async (tx) => {
         await tx.project.create({
@@ -154,6 +162,7 @@ export class ProjectsService {
             garmentModelId: doc.garment.modelId,
             garmentVersion: doc.garment.modelVersion,
             headRevision: 1,
+            conflictOf,
           },
         });
         await tx.projectVersion.create({ data: this.versionRow(id, 1, null, doc, bytes, platform, undefined) });
@@ -241,6 +250,8 @@ export class ProjectsService {
         head: versionDto(head),
       });
     }
+    // Other devices of this user learn about the new head straight away (sync, Stage 8).
+    await this.events.publish(userId, { type: 'project.updated', projectId: id, headRevision: next, deviceId: b.deviceId ?? null });
     return versionMeta(created);
   }
 

@@ -39,6 +39,15 @@ describe('system', () => {
     expect(ok.headers.get('content-security-policy')).toMatch(/default-src 'none'/);
     const evil = await fetch(`${s.base}/v1/health`, { headers: { origin: 'https://evil.example' } });
     expect(evil.headers.get('access-control-allow-origin')).toBeNull();
+    // Browser preflight for the methods the editor uses (found in Stage 8: PUT was refused).
+    for (const method of ['PUT', 'PATCH', 'DELETE']) {
+      const pre = await fetch(`${s.base}/v1/projects/x`, {
+        method: 'OPTIONS',
+        headers: { origin: 'http://localhost:5173', 'access-control-request-method': method, 'access-control-request-headers': 'authorization,content-type' },
+      });
+      expect(pre.status).toBe(204);
+      expect(pre.headers.get('access-control-allow-methods')).toContain(method);
+    }
   });
 
   it('garment catalogue is public and cacheable; the thumbnail is on the public bucket', async () => {

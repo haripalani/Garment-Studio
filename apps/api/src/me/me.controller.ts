@@ -92,7 +92,7 @@ export class MeController {
     await this.audit.record('account.delete', { actorId: u.id, ip: req.ip });
     await this.mail.send('account-deleted', originalEmail).catch(() => undefined);
     void reply.clearCookie(REFRESH_COOKIE, { path: '/v1/auth' });
-    void reply.clearCookie(CSRF_COOKIE, { path: '/' });
+    void reply.clearCookie(CSRF_COOKIE, { path: '/', ...(this.config.COOKIE_DOMAIN ? { domain: this.config.COOKIE_DOMAIN } : {}) });
   }
 
   @Get('settings')

@@ -1,14 +1,16 @@
 import { useId, useState, type FormEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Eye, EyeOff } from 'lucide-react';
-import { Button, Modal, Segmented, StageNotice } from '@gs/ui';
+import { Button, Modal, Segmented } from '@gs/ui';
+import { ApiError, OfflineError } from '../cloud/api';
+import { useSession } from '../cloud/session';
 import { useWorkspace } from '../store/workspace';
 
 type Mode = 'login' | 'signup' | 'reset';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/** Validates locally only. Requests to /v1/auth/* are wired in Stage 6 (ADR-0011). */
+/** Log in, sign up, magic link and password reset against the API (ADR-0011). */
 export function AuthDialog() {
   const { t } = useTranslation();
   const open = useWorkspace((s) => s.dialog === 'auth');
@@ -19,14 +21,44 @@ export function AuthDialog() {
   const [show, setShow] = useState(false);
   const [remember, setRemember] = useState(true);
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
-  const [submitted, setSubmitted] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
+  const session = useSession();
 
   function close(o: boolean) {
     if (!o) {
       openDialog(null);
-      setSubmitted(false);
+      setNotice(null);
+      setFailure(null);
       setErrors({});
       setPassword('');
+    }
+  }
+
+  /** Server errors become a sentence (or a field error); offline gets its own explanation. */
+  function explain(e: unknown) {
+    if (e instanceof OfflineError) return setFailure(t('auth.offline'));
+    if (e instanceof ApiError) {
+      const fieldErrors = (e.body.errors as { path: string; message: string }[] | undefined) ?? [];
+      const pw = fieldErrors.find((x) => x.path === 'password');
+      if (pw) return setErrors({ password: pw.message });
+      const known = ['invalid_credentials', 'email_taken', 'account_locked', 'rate_limited', 'validation_failed'];
+      return setFailure(known.includes(e.code) ? t(`auth.errors.${e.code}` as 'auth.errors.generic') : t('auth.errors.generic', { message: e.message }));
+    }
+    setFailure(t('auth.errors.generic', { message: (e as Error).message }));
+  }
+
+  async function run(fn: () => Promise<void>) {
+    setBusy(true);
+    setFailure(null);
+    setNotice(null);
+    try {
+      await fn();
+    } catch (e) {
+      explain(e);
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -34,10 +66,31 @@ export function AuthDialog() {
     e.preventDefault();
     const next: typeof errors = {};
     if (!EMAIL_RE.test(email)) next.email = t('auth.invalidEmail');
-    if (mode !== 'reset' && password.length < (mode === 'signup' ? 10 : 1))
-      next.password = t('auth.shortPassword');
+    if (mode === 'signup' && password.length < 10) next.password = t('auth.shortPassword');
+    if (mode === 'login' && !password) next.password = t('auth.emptyPassword');
     setErrors(next);
-    setSubmitted(Object.keys(next).length === 0);
+    if (Object.keys(next).length) return;
+    void run(async () => {
+      if (mode === 'login') {
+        await session.signIn(email, password, remember);
+        close(false);
+      } else if (mode === 'signup') {
+        await session.signUp(email, password);
+        close(false);
+      } else {
+        await session.forgot(email);
+        setNotice(t('auth.resetSent', { email }));
+      }
+    });
+  }
+
+  function magic() {
+    if (!EMAIL_RE.test(email)) return setErrors({ email: t('auth.invalidEmail') });
+    setErrors({});
+    void run(async () => {
+      await session.magicLink(email);
+      setNotice(t('auth.magicSent', { email }));
+    });
   }
 
   const title = mode === 'reset' ? t('auth.resetTitle') : t('auth.title');
@@ -51,7 +104,8 @@ export function AuthDialog() {
             value={mode}
             onChange={(m) => {
               setMode(m);
-              setSubmitted(false);
+              setNotice(null);
+              setFailure(null);
             }}
             className="grid grid-cols-2"
             options={[
@@ -119,15 +173,24 @@ export function AuthDialog() {
           </div>
         )}
 
-        <Button type="submit" variant="primary" size="lg">
-          {mode === 'login' ? t('auth.login') : mode === 'signup' ? t('auth.signup') : t('auth.resetSend')}
+        <Button type="submit" variant="primary" size="lg" disabled={busy}>
+          {busy ? t('auth.working') : mode === 'login' ? t('auth.login') : mode === 'signup' ? t('auth.signup') : t('auth.resetSend')}
         </Button>
 
-        {submitted && <StageNotice stage={6}>{t('auth.stage')}</StageNotice>}
+        {failure && (
+          <p role="alert" className="m-0 text-[13px] text-danger">
+            {failure}
+          </p>
+        )}
+        {notice && (
+          <p role="status" className="m-0 text-[13px] text-success-fg">
+            {notice}
+          </p>
+        )}
 
         <div className="flex flex-col items-center gap-2 text-[13px] text-muted">
           {mode === 'reset' ? (
-            <button type="button" className="text-accent-fg hover:underline" onClick={() => setMode('login')}>
+            <button type="button" className="text-accent-fg hover:underline" onClick={() => { setMode('login'); setNotice(null); }}>
               {t('auth.back')}
             </button>
           ) : (
@@ -142,11 +205,7 @@ export function AuthDialog() {
                   {mode === 'login' ? t('auth.signup') : t('auth.login')}
                 </button>
               </span>
-              <button
-                type="button"
-                className="text-ink underline-offset-2 hover:underline"
-                onClick={() => setSubmitted(true)}
-              >
+              <button type="button" className="text-ink underline-offset-2 hover:underline" disabled={busy} onClick={magic}>
                 {t('auth.magic')}
               </button>
             </>

@@ -1,6 +1,13 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const PORT = 5174;
+const BROWSERS = [
+  ['chromium', 'Desktop Chrome'],
+  ['firefox', 'Desktop Firefox'],
+  ['webkit', 'Desktop Safari'],
+] as const;
+/** Minutes-long or multi-context specs (exports, GPU render, cloud sync with two devices). */
+const HEAVY = /(exports|render|cloud)\.spec\.ts/;
 
 export default defineConfig({
   testDir: './e2e',
@@ -12,8 +19,8 @@ export default defineConfig({
     toHaveScreenshot: { maxDiffPixelRatio: 0.01, animations: 'disabled' },
   },
   fullyParallel: true,
-  // More workers than this starve WebKit/Firefox of CPU on a dev laptop and cause timeouts.
-  workers: process.env.CI ? 2 : 3,
+  // Software WebGL (headless 3D) is CPU-heavy: more than 2 workers starves Chromium's 3D tests on a laptop.
+  workers: 2,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   reporter: [['list'], ['html', { open: 'never', outputFolder: 'e2e-report' }]],
@@ -25,14 +32,35 @@ export default defineConfig({
     locale: 'en-GB',
   },
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } } },
-    { name: 'firefox', use: { ...devices['Desktop Firefox'], viewport: { width: 1440, height: 900 } } },
-    { name: 'webkit', use: { ...devices['Desktop Safari'], viewport: { width: 1440, height: 900 } } },
+    ...BROWSERS.map(([name, device]) => ({
+      name,
+      testIgnore: HEAVY,
+      use: { ...devices[device], viewport: { width: 1440, height: 900 } },
+    })),
+    // Exports and path-traced renders take minutes of CPU/GPU each. They run after everything else, one
+    // browser at a time with two workers, so they never starve other tests (or each other) on a laptop.
+    ...BROWSERS.map(([name, device], i) => ({
+      name: `${name}-exports`,
+      testMatch: HEAVY,
+      workers: 2,
+      dependencies: i === 0 ? BROWSERS.map(([n]) => n) : [`${BROWSERS[i - 1]![0]}-exports`],
+      use: { ...devices[device], viewport: { width: 1440, height: 900 } },
+    })),
   ],
-  webServer: {
-    command: `vite --port ${PORT} --strictPort`,
-    url: `http://localhost:${PORT}`,
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-  },
+  webServer: [
+    {
+      command: `vite --port ${PORT} --strictPort`,
+      url: `http://localhost:${PORT}`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
+    // The API for the cloud tests (sign-in, sync). Needs the local services: infra/dev/compose.yaml.
+    {
+      command: 'npx tsx --env-file=.env src/main.ts',
+      cwd: '../api',
+      url: 'http://localhost:4000/v1/health',
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
+  ],
 });

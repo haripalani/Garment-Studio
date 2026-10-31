@@ -19,7 +19,8 @@ test.describe('3D preview', () => {
   test('renders the garment with the fabric colour (colour fidelity)', async ({ editor }) => {
     await waitForStudio(editor);
     await editor.page.getByRole('radio', { name: '#26365a' }).click();
-    await expect.poll(async () => (await stats(editor))?.varied ?? 0).toBeGreaterThan(0.2);
+    // Each poll renders a 600 px snapshot in software WebGL: allow time under parallel load.
+    await expect.poll(async () => (await stats(editor))?.varied ?? 0, { timeout: 30_000 }).toBeGreaterThan(0.2);
     const s = (await stats(editor))!;
     // Navy #26365a = (38, 54, 90): the lit centre of the shirt stays close to the real colour.
     const target = [38, 54, 90];

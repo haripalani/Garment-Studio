@@ -5,12 +5,10 @@ import { BRAND } from '@gs/core';
 import { useAssets } from '../store/assets';
 import { useDoc } from '../store/doc';
 import { useWorkspace } from '../store/workspace';
-import { bakeSignature, bakeTargets, bakeTexture } from './baker';
+import { SHOWN_PIECES, bakeSignature, bakeTargets, bakeTexture } from './baker';
 import { setStudio } from './studioRef';
 import { toast } from '../store/toast';
 
-/** Pieces shown on the flat-lay tee (bodies and sleeves). */
-const SHOWN = ['front', 'back', 'sleeveR', 'sleeveL'];
 const BAKE_INTERVAL_MS = 120;
 /** During drags and slider moves the bake runs less often; the final state always bakes. */
 const GESTURE_BAKE_INTERVAL_MS = 250;
@@ -50,7 +48,7 @@ export function ViewerCanvas() {
       lastBake = performance.now();
       const { doc, garment } = useDoc.getState();
       const assetsVersion = useAssets.getState().version;
-      for (const target of bakeTargets(garment, SHOWN)) {
+      for (const target of bakeTargets(garment, SHOWN_PIECES)) {
         const key = `${target.pieceId}|${target.side}`;
         const sig = bakeSignature(garment, doc.layers, doc.look.fabric, assetsVersion, target);
         if (signatures.get(key) === sig) continue;

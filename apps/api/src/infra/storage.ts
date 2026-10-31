@@ -11,6 +11,7 @@ import {
   HeadObjectCommand,
   ListObjectsV2Command,
   ListPartsCommand,
+  PutBucketCorsCommand,
   PutObjectCommand,
   S3Client,
   UploadPartCommand,
@@ -22,6 +23,8 @@ import { CONFIG, type Config } from '../config';
 @Injectable()
 export class Storage {
   readonly s3: S3Client;
+  /** Signs URLs for browsers (public endpoint); never used for requests from the API itself. */
+  private readonly signer: S3Client;
   readonly bucket: string;
 
   constructor(@Inject(CONFIG) private readonly config: Config) {
@@ -35,6 +38,16 @@ export class Storage {
       requestChecksumCalculation: 'WHEN_REQUIRED',
       responseChecksumValidation: 'WHEN_REQUIRED',
     });
+    this.signer = config.S3_PUBLIC_ENDPOINT
+      ? new S3Client({
+          endpoint: config.S3_PUBLIC_ENDPOINT,
+          region: config.S3_REGION,
+          forcePathStyle: config.S3_FORCE_PATH_STYLE,
+          credentials: { accessKeyId: config.S3_ACCESS_KEY, secretAccessKey: config.S3_SECRET_KEY },
+          requestChecksumCalculation: 'WHEN_REQUIRED',
+          responseChecksumValidation: 'WHEN_REQUIRED',
+        })
+      : this.s3;
   }
 
   /** Creates the private and public buckets when missing (local development and tests). */
@@ -46,6 +59,29 @@ export class Storage {
         await this.s3.send(new CreateBucketCommand({ Bucket }));
       }
     }
+  }
+
+  /**
+   * Browsers upload parts and download files straight from storage (presigned URLs), so the private
+   * bucket must allow the app's origins and expose ETag (needed to complete multipart uploads).
+   */
+  async ensureCors(origins: string[]): Promise<void> {
+    await this.s3.send(
+      new PutBucketCorsCommand({
+        Bucket: this.bucket,
+        CORSConfiguration: {
+          CORSRules: [
+            {
+              AllowedOrigins: origins,
+              AllowedMethods: ['GET', 'PUT', 'HEAD'],
+              AllowedHeaders: ['*'],
+              ExposeHeaders: ['ETag'],
+              MaxAgeSeconds: 3600,
+            },
+          ],
+        },
+      }),
+    );
   }
 
   /** Immutable public files (garments), served from the public bucket / CDN. */
@@ -79,7 +115,7 @@ export class Storage {
 
   presignPart(key: string, uploadId: string, partNumber: number, expiresIn: number): Promise<string> {
     return getSignedUrl(
-      this.s3,
+      this.signer,
       new UploadPartCommand({ Bucket: this.bucket, Key: key, UploadId: uploadId, PartNumber: partNumber }),
       { expiresIn },
     );
@@ -135,7 +171,7 @@ export class Storage {
 
   presignGet(key: string, mime: string, filename: string, expiresIn: number): Promise<string> {
     return getSignedUrl(
-      this.s3,
+      this.signer,
       new GetObjectCommand({
         Bucket: this.bucket,
         Key: key,

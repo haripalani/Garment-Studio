@@ -41,6 +41,11 @@ interface DocState {
   select: (id: string | null) => void;
   /** Replace the whole document (load / new design). Clears history. */
   load: (doc: ProjectDoc) => void;
+  /**
+   * Replace the document with another version of the same design (changes merged from the cloud) as
+   * one undoable step, keeping its timestamp as-is.
+   */
+  replace: (doc: ProjectDoc, label: string) => void;
 }
 
 function stamp(d: Draft<ProjectDoc>) {
@@ -137,6 +142,20 @@ export const useDoc = create<DocState>()((set, get) => ({
   select: (selectedId) => set({ selectedId }),
 
   load: (doc) => set({ doc, selectedId: null, past: [], future: [], txn: null, rev: get().rev + 1 }),
+
+  replace: (doc, label) => {
+    get().commit();
+    const s = get();
+    const [next, patches, inverse] = produceWithPatches(s.doc, () => doc);
+    if (patches.length === 0) return;
+    set({
+      doc: next,
+      rev: s.rev + 1,
+      past: [...s.past, { label, patches, inverse, at: Date.now() }].slice(-HISTORY_LIMIT),
+      future: [],
+      selectedId: next.layers.some((l) => l.id === s.selectedId) ? s.selectedId : null,
+    });
+  },
 }));
 
 export function selectedLayer(s: Pick<DocState, 'doc' | 'selectedId'>): Layer | undefined {

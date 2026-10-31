@@ -127,14 +127,21 @@ export type Layer = z.infer<typeof LayerSchema>;
 export type AssetRef = z.infer<typeof AssetRefSchema>;
 export type ProjectDoc = z.infer<typeof ProjectDocSchema>;
 
-let counter = 0;
-/** Short, sortable, collision-resistant id (cuid2 replaces this when the API exists). */
+/**
+ * 24-character lowercase id, valid as an API id (/^[a-z0-9]{20,32}$/), so designs created offline keep
+ * their id in the cloud. A time prefix keeps ids roughly sortable; the rest is random.
+ */
 export function newId(): string {
-  counter = (counter + 1) % 1296;
-  return (
-    Date.now().toString(36) + counter.toString(36).padStart(2, '0') + Math.random().toString(36).slice(2, 8)
-  );
+  const time = Date.now().toString(36).padStart(9, '0');
+  const bytes = new Uint8Array(15);
+  crypto.getRandomValues(bytes);
+  let rand = '';
+  for (const b of bytes) rand += (b % 36).toString(36);
+  return (time + rand).slice(0, 24);
 }
+
+/** True when an id can be used as a cloud project id. */
+export const isCloudId = (id: string): boolean => /^[a-z0-9]{20,32}$/.test(id);
 
 export const SCHEMA_VERSION = 2;
 

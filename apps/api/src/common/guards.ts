@@ -65,7 +65,7 @@ export class RateLimitGuard implements CanActivate {
     const cls =
       this.reflector.getAllAndOverride<RateClass>(RATE, [ctx.getHandler(), ctx.getClass()]) ??
       (req.method === 'GET' || req.method === 'HEAD' ? 'read' : 'write');
-    const limit = RATE_LIMITS[cls];
+    const limit = cls === 'auth' ? this.config.RATE_AUTH_PER_MIN : RATE_LIMITS[cls];
     // The auth class is always per IP (credential stuffing comes from anonymous clients).
     const who = cls !== 'auth' && req.principal ? `u:${req.principal.id}` : `ip:${hmacHex(this.config.IP_HASH_SECRET, req.ip)}`;
     const [ok, remaining, waitMs] = (await this.redis.client.eval(

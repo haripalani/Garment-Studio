@@ -1,0 +1,8 @@
+**/node_modules
+**/dist
+**/.env
+**/test-results
+**/e2e-report
+**/.turbo
+.git
+*.log

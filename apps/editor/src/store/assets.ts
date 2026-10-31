@@ -86,7 +86,7 @@ export async function importImage(file: Blob, name: string): Promise<{ id: strin
   }
   if (file.size > MAX_BYTES) throw new AssetError('size', 'Images can be up to 50 MB.');
   const hash = await sha256(file);
-  const id = `a${hash.slice(0, 24)}`;
+  const id = assetIdFor(hash);
   if (!sources.has(id)) {
     const src = await decode(file);
     sources.set(id, src);
@@ -151,4 +151,20 @@ export async function assetBlob(id: string): Promise<Blob | undefined> {
   if (!v) return undefined;
   if (v instanceof Blob) return v;
   return new Blob([v.bytes], { type: v.type });
+}
+
+/** The local id of an image: derived from its content, so it is the same on every device. */
+export const assetIdFor = (sha256: string) => `a${sha256.slice(0, 24)}`;
+
+/** Keep bytes fetched from the cloud (sync) on this device and decode them for drawing. */
+export async function storeCloudAsset(id: string, blob: Blob): Promise<void> {
+  await storeBytes(id, blob);
+  sources.set(id, await decode(blob));
+  useAssets.getState().bump();
+}
+
+/** Decode bytes received from elsewhere (the cloud render page) under an existing asset id. */
+export async function registerAsset(id: string, blob: Blob): Promise<void> {
+  sources.set(id, await decode(blob));
+  useAssets.getState().bump();
 }

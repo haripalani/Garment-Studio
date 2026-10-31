@@ -289,7 +289,11 @@ model RenderJob {
   workerId        String?
   errorCode       String?
   errorMessage    String?
-  outputAssetId   String?
+  outputAssetId   String? // primary output (PNG)
+  /// All outputs: [{ format: "png" | "webp", assetId }]
+  outputs         Json?
+  /// The job this one retries (retries are new jobs with the same parameters)
+  retryOf         String?
   gpuSeconds      Float?
   idempotencyKey  String?
   cancelRequested Boolean      @default(false)

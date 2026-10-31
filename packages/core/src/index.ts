@@ -7,3 +7,5 @@ export * from './look';
 export * from './doc';
 export * from './canonical';
 export * from './api';
+export * from './renderPage';
+export * from './merge';

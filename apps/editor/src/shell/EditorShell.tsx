@@ -4,14 +4,21 @@ import { MonitorSmartphone } from 'lucide-react';
 import { useShortcuts } from '../editor/useShortcuts';
 import { SelectedItemPanel } from '../pattern/SelectedItemPanel';
 import { restoreWorkingCopy, startAutosave } from '../store/persist';
+import { useSession } from '../cloud/session';
+import { startLive } from '../cloud/live';
+import { startSync, unclaimedProjects } from '../cloud/sync';
 import { usePrefs } from '../store/prefs';
 import { toast } from '../store/toast';
 import { useWorkspace } from '../store/workspace';
+import { useDoc } from '../store/doc';
 import { AuthDialog } from './AuthDialog';
+import { ClaimDialog } from './ClaimDialog';
+import { ProjectsDialog } from './ProjectsDialog';
 import { NewDesignDialog, Toaster } from './Overlays';
 import { Header } from './Header';
 import { Inspector } from './Inspector';
 import { PatternStage } from './PatternStage';
+import { ExportDialog } from './ExportDialog';
 import { RenderDialog } from './RenderDialog';
 import { Tour } from './Tour';
 import { ViewerStage } from './ViewerStage';
@@ -28,17 +35,40 @@ export function EditorShell() {
   useEffect(() => {
     let stop: (() => void) | undefined;
     let cancelled = false;
-    void restoreWorkingCopy().then((missing) => {
+    void restoreWorkingCopy().then(async (missing) => {
       if (cancelled) return;
       if (missing.length) toast(t('app.missingAssets', { count: missing.length }), 'error');
       useWorkspace.getState().requestFit();
-      stop = startAutosave();
+      const stopSave = startAutosave();
+      // Cloud: restore the session from the refresh cookie, then sync and live updates (ADR-0009).
+      await useSession.getState().init();
+      if (cancelled) return stopSave();
+      const stopSync = startSync();
+      const stopLive = startLive();
+      stop = () => {
+        stopSave();
+        stopSync();
+        stopLive();
+      };
     });
     return () => {
       cancelled = true;
       stop?.();
     };
   }, [t]);
+
+  // On signing in, offer to save designs made on this device while signed out.
+  useEffect(
+    () =>
+      useSession.subscribe((s, prev) => {
+        if (s.status !== 'signedIn' || prev.status === 'signedIn' || prev.status === 'unknown') return;
+        void unclaimedProjects().then((ps) => {
+          const others = ps.filter((p) => p.id !== useDoc.getState().doc.id);
+          if (others.length && !useWorkspace.getState().dialog) useWorkspace.getState().openDialog('claim');
+        });
+      }),
+    [],
+  );
 
   return (
     <div className="flex h-full min-w-[900px] flex-col overflow-hidden">
@@ -50,7 +80,10 @@ export function EditorShell() {
         <SelectedItemPanel />
       </main>
       <AuthDialog />
+      <ProjectsDialog />
+      <ClaimDialog />
       <RenderDialog />
+      <ExportDialog />
       <NewDesignDialog />
       <Toaster />
       <Tour />

@@ -72,10 +72,11 @@ describe('EditorShell layout', () => {
     expect(screen.getByText(`${Math.round(fitted * 100)}%`)).toBeInTheDocument();
   });
 
-  it('marks stage-gated actions as disabled', () => {
+  it('disables undo without history; saving to the cloud while signed out asks to log in', async () => {
     renderShell();
     expect(screen.getByRole('button', { name: /Undo/ })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /Save project/ })).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: 'Save to the cloud now' }));
+    expect(await screen.findByRole('dialog', { name: 'Log in to save your project' })).toBeInTheDocument();
   });
 });
 
@@ -97,17 +98,28 @@ describe('Look defaults', () => {
 });
 
 describe('Auth dialog', () => {
-  it('validates locally and never claims to have signed in', async () => {
+  it('validates locally, then explains server answers (wrong password, unreachable service)', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
     renderShell();
     await userEvent.click(screen.getByRole('button', { name: 'Log in' }));
     const dialog = await screen.findByRole('dialog');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Log in' }));
     expect(within(dialog).getByText('Enter a valid email address.')).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
 
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ status: 401, code: 'invalid_credentials', title: 'Email or password is incorrect' }), { status: 401 }),
+    );
     await userEvent.type(within(dialog).getByLabelText('Email'), 'a@b.co');
     await userEvent.type(within(dialog).getByLabelText('Password'), 'secret-pass');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Log in' }));
-    expect(within(dialog).getByText(/Nothing was sent/)).toBeInTheDocument();
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('Email or password is incorrect.');
+    expect(String(fetchMock.mock.calls[0]![0])).toMatch(/\/v1\/auth\/login$/);
+
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Log in' }));
+    expect(await within(dialog).findByText(/can’t be reached/)).toBeInTheDocument();
+    fetchMock.mockRestore();
   });
 });
 

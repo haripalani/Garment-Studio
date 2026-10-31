@@ -60,21 +60,22 @@ test.describe('shell', () => {
     await expect(page.getByRole('dialog', { name: 'Work on the real pattern' })).toHaveCount(0);
   });
 
-  test('auth form validates locally and sends nothing', async ({ editor }) => {
+  test('auth form validates locally before sending anything, then shows the server answer', async ({ editor }) => {
     const { page } = editor;
-    const requests: string[] = [];
+    const authCalls: string[] = [];
     page.on('request', (r) => {
-      if (!r.url().startsWith('http://localhost')) requests.push(r.url());
+      if (r.url().includes('/v1/auth/login')) authCalls.push(r.url());
     });
     await page.getByRole('button', { name: 'Log in' }).click();
     const dialog = page.getByRole('dialog');
     await dialog.getByRole('button', { name: 'Log in' }).click();
     await expect(dialog.getByText('Enter a valid email address.')).toBeVisible();
     await expect(dialog.getByLabel('Email')).toHaveAccessibleDescription('Enter a valid email address.');
-    await dialog.getByLabel('Email', { exact: true }).fill('a@b.co');
+    expect(authCalls).toEqual([]);
+    await dialog.getByLabel('Email', { exact: true }).fill(`nobody-${Date.now()}@example.test`);
     await dialog.getByLabel('Password', { exact: true }).fill('long-enough-pass');
     await dialog.getByRole('button', { name: 'Log in' }).click();
-    await expect(dialog.getByText(/Nothing was sent/)).toBeVisible();
-    expect(requests).toEqual([]);
+    await expect(dialog.getByRole('alert')).toHaveText('Email or password is incorrect.', { timeout: 15_000 });
+    expect(authCalls).toHaveLength(1);
   });
 });

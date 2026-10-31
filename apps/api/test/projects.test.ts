@@ -179,6 +179,15 @@ describe('projects', () => {
     expect((await u.get('/projects?q=ALPHA')).body.items.map((p: { name: string }) => p.name).sort()).toEqual(['Alpha', 'alphabet soup']);
   });
 
+  it('records which project a conflicted copy came from (own projects only)', async () => {
+    const orig = (await create('Original for conflict')).body;
+    const copy = await c.post('/projects', { name: 'Original for conflict (conflicted copy)', doc: teeDoc(), conflictOf: orig.id });
+    expect(copy.body.conflictOf).toBe(orig.id);
+    const other = (await signUp(s.base)).c;
+    const foreign = await other.post('/projects', { name: 'x', doc: teeDoc(), conflictOf: orig.id });
+    expect(foreign.body.conflictOf).toBeNull();
+  });
+
   it('duplicates the head as a new project', async () => {
     const p = (await create('Original', teeDoc((d) => (d.name = 'orig')))).body;
     const d = await c.post(`/projects/${p.id}/duplicate`, {});

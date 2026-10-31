@@ -10,3 +10,4 @@ coverage/
 src-tauri/target/
 e2e-report/
 test-results/
+infra/staging/s3.json
